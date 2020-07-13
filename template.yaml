@@ -1,0 +1,131 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  lock-pyportal
+
+Globals:
+  Function:
+    Timeout: 3
+
+Parameters:
+  LockboxCustomMessage:
+    Type: String
+    Default: "You have a package! Here is your code: "
+    Description: The message lock code recipients recieve. Include a description of the physical location.
+
+Resources:
+
+  PinpointApplication:
+    Type: AWS::Pinpoint::App
+    Properties: 
+      Name: !Sub '${AWS::StackName}-pinpoint'
+  
+  PinpointSMSChannel:
+    Type: AWS::Pinpoint::SMSChannel
+    Properties: 
+      ApplicationId: !Ref PinpointApplication
+      Enabled: True
+
+  LockboxApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        ApiKeyRequired: true
+        UsagePlan:
+          CreateUsagePlan: PER_API
+
+  StateParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${AWS::StackName}/lockbox/state'
+      Description: 'Parameter containing the state of the lockbox'
+      Type: String
+      Value: "{\"locked\":false,\"code\":\"\"}"
+
+  SendCodeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambda_functions/SendCode
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - mobiletargeting:*
+                - mobileanalytics:*
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - ssm:*
+              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/lockbox/state'
+      Environment:
+        Variables:
+          APPLICATION_ID: !Ref PinpointApplication
+          PARAMETER_NAME: !Sub '/${AWS::StackName}/lockbox/state'
+          MESSAGE: !Ref LockboxCustomMessage
+      Events:
+        Lock:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LockboxApi
+            Path: /lock
+            Method: post
+
+  FetchStateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambda_functions/FetchState
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ssm:*
+              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/lockbox/state'
+      Environment:
+        Variables:
+          PARAMETER_NAME: !Sub '/${AWS::StackName}/lockbox/state'
+      Events:
+        Lock:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LockboxApi
+            Path: /state
+            Method: get
+
+  UpdateStateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambda_functions/UpdateState
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ssm:*
+              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/lockbox/state'
+      Environment:
+        Variables:
+          PARAMETER_NAME: !Sub '/${AWS::StackName}/lockbox/state'
+      Events:
+        Lock:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LockboxApi
+            Path: /state
+            Method: post
+
+Outputs:
+  LockBaseApiUrl:
+    Description: "API GW endpoint"
+    Value: !Sub "https://${LockboxApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  LockboxApiKey:
+    Description: "Api key"
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/apigateway/home?region=${AWS::Region}#/api-keys/${LockboxApi.ApiKey}"
