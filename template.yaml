@@ -12,19 +12,12 @@ Parameters:
     Type: String
     Default: "You have a package! Here is your code: "
     Description: The message lock code recipients recieve. Include a description of the physical location.
+  PinpointApplicationID:
+    Type: String
+    Default: ""
+    Description: Amazon Pinpoint ProjectID
 
 Resources:
-
-  PinpointApplication:
-    Type: AWS::Pinpoint::App
-    Properties: 
-      Name: !Sub '${AWS::StackName}-pinpoint'
-  
-  PinpointSMSChannel:
-    Type: AWS::Pinpoint::SMSChannel
-    Properties: 
-      ApplicationId: !Ref PinpointApplication
-      Enabled: True
 
   LockboxApi:
     Type: AWS::Serverless::Api
@@ -63,7 +56,7 @@ Resources:
               Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/lockbox/state'
       Environment:
         Variables:
-          APPLICATION_ID: !Ref PinpointApplication
+          APPLICATION_ID: !Ref PinpointApplicationID
           PARAMETER_NAME: !Sub '/${AWS::StackName}/lockbox/state'
           MESSAGE: !Ref LockboxCustomMessage
       Events:
